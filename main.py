@@ -37,17 +37,6 @@ register = {0: 0,
             30: 0,
             31: 0}
 
-funct3Dict = {
-    0: 'addi',
-    1: 'slli',
-    2: 'slti',
-    3: 'sltiu',
-    4: 'xori',
-    5: 'srli',
-    6: 'ori',
-    7: 'andi'
-}
-
 #EXECUTE
 
 def addi(rd, rs1, immediate):
@@ -123,25 +112,46 @@ def beq(rs1, rs2, offset):
         pc += 4
 
 
+def auipc(rd, immediate):
+    register[rd] = pc + (immediate << 12)
+
+countlw = 0
+
+def lw(rd, rs1, offset):
+    global countlw
+    register[rd] = getInstruction(register[rs1] + offset)
+    countlw += 1
+
+
+def sw(rs1, rs2, offset):
+    global countlw
+    if countlw == 4:
+        countlw += 0
+    memory[register[rs1] + offset] = bitsToNumber(register[rs2], 24, 31)
+    memory[register[rs1] + offset + 1] = bitsToNumber(register[rs2], 16, 23)
+    memory[register[rs1] + offset + 2] = bitsToNumber(register[rs2], 8, 15)
+    memory[register[rs1] + offset + 3] = bitsToNumber(register[rs2], 0, 7)
+
 def loadTestSrs(file):
     k = 0
     global passedAdress
     with open(file, 'r') as f:
         for line in f.readlines():
             if (line[0] == '8') and (not '<' in line):
-                inutil, util = line.split(':')
-                util = int(util.strip(), 16)
-                memory[k] = bitsToNumber(util, 24, 31)
-                k += 1
-                memory[k] = bitsToNumber(util, 16, 23)
-                k += 1
-                memory[k] = bitsToNumber(util, 8, 15)
-                k += 1
-                memory[k] = bitsToNumber(util, 0, 7)
-                k += 1
+                adresa, instructiune = line.split(':')
+                instructiune = int(instructiune.strip(), 16)
+                adresa = int(adresa.strip(), 16) - const
+                if adresa >= 12288 and adresa < 12300:
+                    memory[adresa] = bitsToNumber(instructiune, 8, 15)
+                    memory[adresa + 1] = bitsToNumber(instructiune, 0, 7)
+                else:
+                    memory[adresa] = bitsToNumber(instructiune, 24, 31)
+                    memory[adresa + 1] = bitsToNumber(instructiune, 16, 23)
+                    memory[adresa + 2] = bitsToNumber(instructiune, 8, 15)
+                    memory[adresa + 3] = bitsToNumber(instructiune, 0, 7)
             elif '<' in line and 'pass' in line:
                 adresa, eticheta = line.split('<')
-                passedAdress = k
+                passedAdress = int(adresa.strip(), 16) - const
 
 
 
@@ -161,26 +171,44 @@ def sgnext(offset):
         offset -= (1 << 13)
     return offset
 
+def sgnext2(offset):
+    if offset & (1 << 11):
+        offset -= (1 << 12)
+    return offset
+
 
 def getInstruction(pc):
     return (memory[pc] << 24) + (memory[pc + 1] << 16) + (memory[pc + 2] << 8) + memory[pc + 3]
 
 
-loadTestSrs('rv32ui-v-addi.mc')
-
+loadTestSrs('rv32um-v-rem.mc')
 while True:
     register[0] = 0
-    if pc >= 500:
+
+    if pc == 10720:
         pc += 0
 
     # IF - instruction fetch
     instruction = getInstruction(pc)
 
-    # print(bitsToNumberJmek(instruction, 20, 31))
-
     # ID - instruction decode
     opcode = bitsToNumber(instruction, 0, 6)
-    if opcode == 19:
+
+    if opcode == 0:
+        pc += 4
+
+    elif opcode == 3:
+        rd = bitsToNumber(instruction, 7, 11)
+        funct3 = bitsToNumber(instruction, 12, 14)
+        rs1 = bitsToNumber(instruction, 15, 19)
+        offset = signedBitsToNumber(instruction, 20, 31)
+
+        if funct3 == 2:
+            lw(rd, rs1, offset)
+
+        pc += 4
+
+    elif opcode == 19:
         rd = bitsToNumber(instruction, 7, 11)
         funct3 = bitsToNumber(instruction, 12, 14)
         rs1 = bitsToNumber(instruction, 15, 19)
@@ -192,6 +220,27 @@ while True:
             ori(rd, rs1, immediate)
         elif funct3 == 1:
             slli(rd, rs1, immediate)
+
+        pc += 4
+
+    elif opcode == 23:
+        rd = bitsToNumber(instruction, 7, 11)
+        immediate = bitsToNumber(instruction, 12, 31)
+
+        auipc(rd, immediate)
+
+        pc += 4
+
+    elif opcode == 35:
+        offset = bitsToNumber(instruction, 7, 11) + (bitsToNumber(instruction, 25, 31) << 5)
+        funct3 = bitsToNumber(instruction, 12, 14)
+        rs1 = bitsToNumber(instruction, 15, 19)
+        rs2 = bitsToNumber(instruction, 20, 24)
+
+        offset = sgnext2(offset)
+
+        if funct3 == 2:
+            sw(rs1, rs2, offset)
 
         pc += 4
 
