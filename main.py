@@ -1,10 +1,13 @@
 import math
 
-pc = 0
-passedAdress = 0
-const = 0x80000000
-memory = [0 for i in range(100000)]
-register = {0: 0,
+const = 0x80000000                          # scadem aceasta constanta din adresele de memorie pentru a porni de la adresa 0
+
+pc = 0                                      # program counter
+passAddress = 0                             # adresa etichetei pass
+
+memory = [0 for i in range(1024 * 1024)]    # 1MB RAM
+
+register = {0: 0,                           # 32 de registrii
             1: 0,
             2: 0,
             3: 0,
@@ -37,66 +40,115 @@ register = {0: 0,
             30: 0,
             31: 0}
 
-#EXECUTE
 
+# extrage numarul format din bitii de pe pozitiile [i...j] din x
+def bitSeqToNumber(x, i, j):
+    return (x & ((1 << (j + 1)) - (1 << i))) >> i
+
+
+# extrage numarul(intreg) format din bitii de pe pozitiile [i...j] din x
+def signedBitSeqToNumber(x, i, j):
+    if x & (1 << j):
+        return ((x & ((1 << (j + 1)) - (1 << i))) - (1 << (j + 1))) >> i
+    else:
+        return (x & ((1 << (j + 1)) - (1 << i))) >> i
+
+
+# transforma un numar natural reprezentat pe msb biti in complementul sau fata de doi
+def complTwo(x, msb):
+    if x & (1 << msb):
+        x -= (1 << (msb + 1))
+    return x
+
+
+# concateneaza 4 octeti incepand de la adresa din parametru
+def getInstruction(adresa):
+    return (memory[adresa] << 24) + (memory[adresa + 1] << 16) + (memory[adresa + 2] << 8) + memory[adresa + 3]
+
+
+# addi rd, rs1, imm   <=>   reg[rd] = reg[rs1] + imm
+# instructiunile li, mv, nop sunt implementate cu addi
 def addi(rd, rs1, immediate):
-    #MEM
-    register[rd] = register[rs1] + immediate
-    # if register[rd] > const:
-    #     register[rd] = -const + register[rd] % const
+    # EXECUTE
+    result = register[rs1] + immediate
+    # MEMORY
+    register[rd] = result
 
 
+# ori rd, rs1, imm   <=>   reg[rd] = reg[rs1] | imm
 def ori(rd, rs1, immediate):
-    #MEM
-    register[rd] = register[rs1] | immediate
+    # EXECUTE
+    result = register[rs1] | immediate
+    # MEMORY
+    register[rd] = result
 
 
+# slli rd, rs1, imm   <=>   reg[rd] = reg[rs1] << imm
 def slli(rd, rs1, immediate):
-    #MEM
-    register[rd] = register[rs1] << immediate
+    # EXECUTE
+    result = register[rs1] << immediate
+    # MEMORY
+    register[rd] = result
 
 
-def rshift(val, n):
-    s = val & 0x80000000
-    for i in range(0,n):
-        val >>= 1
-        val |= s
-    return val
-
-
-def srl(rs2, rs1, rd):
+# srl rd, rs1, rs2   <=>   reg[rd] = reg[rs1] >> lw5(reg[rs2])
+# srl face shiftare logica, nu aritmetica (implicit, >> in Python este shiftare aritmetica)
+# in EXECUTE am implementat shiftarea logica
+def srl(rd, rs1, rs2):
+    # EXECUTE
     if register[rs1] >= 0 or (register[rs2] & 31) == 0:
-        register[rd] = register[rs1] >> (register[rs2] & 31)
+        result = register[rs1] >> (register[rs2] & 31)
     else:
         s = 0
         for i in range(0, 32):
             if register[rs1] & (1 << i):
                 s += (1 << i)
-        register[rd] = s >> (register[rs2] & 31)
+        result = s >> (register[rs2] & 31)
+
+    # MEMORY
+    register[rd] = result
 
 
-def xor(rs2, rs1, rd):
-    register[rd] = register[rs2] ^ register[rs1]
+# xor rd, rs1, rs2   <=>   reg[rd] = reg[rs1] ^ reg[rs2]
+def xor(rd, rs1, rs2):
+    # EXECUTE
+    result = register[rs1] ^ register[rs2]
+    # MEMORY
+    register[rd] = result
 
 
-def rem(rs2, rs1, rd):
+# rem rd, rs1, rs2   <=>   reg[rd] = reg[rs1] % reg[rs2]
+# in Python, operatorul % se comporta diferit fata de instructiunea din RISC-V
+# functia fmod din modulul math are comportamentul dorit
+# daca reg[rs2] == 0 (impartitorul este 0), atunci d = i * c + r <=> d = 0 * c + r <=> d = r <=> reg[rd] = reg[rs1]
+def rem(rd, rs1, rs2):
+    # EXECUTE
     if register[rs2] != 0:
-        register[rd] = math.fmod(register[rs1], register[rs2])
+        result = math.fmod(register[rs1], register[rs2])
     else:
-        register[rd] = register[rs1]
+        result = register[rs1]
+
+    # MEMORY
+    register[rd] = result
 
 
+# lui rd, imm   <=>   reg[rd] = imm << 12
 def lui(rd, immediate):
-    #MEM
-    register[rd] = immediate << 12
+    # EXECUTE
+    result = immediate << 12
+    # MEMORY
+    register[rd] = result
 
 
+# instructiunea j se implementeaza cu jal
 def jal(rd):
-    #MEM
+    # MEMORY
     register[rd] = pc + 4
 
 
+# brench not equal   <=>   reg[rs1] != reg[rs2] then jump(by offset) else continue
 def bne(rs1, rs2, offset):
+    # EXECUTE
     global pc
     if register[rs1] != register[rs2]:
         pc += offset
@@ -104,7 +156,10 @@ def bne(rs1, rs2, offset):
         pc += 4
 
 
+# brench equal   <=>   reg[rs1] == reg[rs2] then jump(by offset) else continue
+# instructiunea beqz se implementeaza cu beq
 def beq(rs1, rs2, offset):
+    # EXECUTE
     global pc
     if register[rs1] == register[rs2]:
         pc += offset
@@ -112,195 +167,206 @@ def beq(rs1, rs2, offset):
         pc += 4
 
 
+# auipc rd, imm   <=>   reg[rd] = pc + (imm << 12)
 def auipc(rd, immediate):
-    register[rd] = pc + (immediate << 12)
+    # EXECUTE
+    result = pc + (immediate << 12)
+    # MEMORY
+    register[rd] = result
 
-countlw = 0
 
+# lw rd, rs1, offset   <=>   reg[rd] = memory(reg[rs1] + offset)
 def lw(rd, rs1, offset):
-    global countlw
+    # MEMORY
     register[rd] = getInstruction(register[rs1] + offset)
-    countlw += 1
 
 
+# sw rs1, rs2, offset   <=>   memory(reg[rs1] + offset) = reg[rs2]
 def sw(rs1, rs2, offset):
-    global countlw
-    if countlw == 4:
-        countlw += 0
-    memory[register[rs1] + offset] = bitsToNumber(register[rs2], 24, 31)
-    memory[register[rs1] + offset + 1] = bitsToNumber(register[rs2], 16, 23)
-    memory[register[rs1] + offset + 2] = bitsToNumber(register[rs2], 8, 15)
-    memory[register[rs1] + offset + 3] = bitsToNumber(register[rs2], 0, 7)
+    # WRITE BACK
+    memory[register[rs1] + offset] = bitSeqToNumber(register[rs2], 24, 31)
+    memory[register[rs1] + offset + 1] = bitSeqToNumber(register[rs2], 16, 23)
+    memory[register[rs1] + offset + 2] = bitSeqToNumber(register[rs2], 8, 15)
+    memory[register[rs1] + offset + 3] = bitSeqToNumber(register[rs2], 0, 7)
 
-def loadTestSrs(file):
-    k = 0
-    global passedAdress
+
+# incarca in RAM programul din file
+def loadTest(file):
+    # golim memoria inainte de rularea unui nou test
+    for i in range(len(memory)):
+        memory[i] = 0
+
+    global passAddress
     with open(file, 'r') as f:
         for line in f.readlines():
-            if (line[0] == '8') and (not '<' in line):
+            if (line[0] == '8') and ('<' not in line):
+                # linia contine o instructiune valida
                 adresa, instructiune = line.split(':')
+                lungime_instructiune = len(instructiune.strip())
                 instructiune = int(instructiune.strip(), 16)
                 adresa = int(adresa.strip(), 16) - const
-                if adresa >= 12288 and adresa < 12300:
-                    memory[adresa] = bitsToNumber(instructiune, 8, 15)
-                    memory[adresa + 1] = bitsToNumber(instructiune, 0, 7)
+
+                if lungime_instructiune == 4:
+                    # incarcam cei 2 octeti ai instructiunii la adresa de memorie precizata
+                    memory[adresa] = bitSeqToNumber(instructiune, 8, 15)
+                    memory[adresa + 1] = bitSeqToNumber(instructiune, 0, 7)
                 else:
-                    memory[adresa] = bitsToNumber(instructiune, 24, 31)
-                    memory[adresa + 1] = bitsToNumber(instructiune, 16, 23)
-                    memory[adresa + 2] = bitsToNumber(instructiune, 8, 15)
-                    memory[adresa + 3] = bitsToNumber(instructiune, 0, 7)
-            elif '<' in line and 'pass' in line:
+                    # incarcam cei 4 octeti ai instructiunii la adresa de memorie precizata
+                    memory[adresa] = bitSeqToNumber(instructiune, 24, 31)
+                    memory[adresa + 1] = bitSeqToNumber(instructiune, 16, 23)
+                    memory[adresa + 2] = bitSeqToNumber(instructiune, 8, 15)
+                    memory[adresa + 3] = bitSeqToNumber(instructiune, 0, 7)
+
+            elif 'pass' in line:
+                # retinem adresa etichetei pass
                 adresa, eticheta = line.split('<')
-                passedAdress = int(adresa.strip(), 16) - const
+                passAddress = int(adresa.strip(), 16) - const
 
 
+def runTest(fisier):
+    print(fisier, end=" ")
 
-def bitsToNumber(x, i, j):
-    return (x & ((1 << (j + 1)) - (1 << i))) >> i
+    loadTest(fisier)
 
+    global pc
+    pc = 0
+    while True:
+        # registrul 0 este hard-wired zero; il resetam la fiecare instructiune
+        register[0] = 0
 
-def signedBitsToNumber(x, i, j):
-    if x & (1 << j):
-        return ((x & ((1 << (j + 1)) - (1 << i))) - (1 << (j + 1))) >> i
-    else:
-        return (x & ((1 << (j + 1)) - (1 << i))) >> i
+        # INSTRUCTION FETCH
+        instruction = getInstruction(pc)
 
+        # INSTRUCTION DECODE
+        opcode = bitSeqToNumber(instruction, 0, 6)
 
-def sgnext(offset):
-    if offset & (1 << 12):
-        offset -= (1 << 13)
-    return offset
+        if opcode == 3:   # LW
+            rd = bitSeqToNumber(instruction, 7, 11)
+            rs1 = bitSeqToNumber(instruction, 15, 19)
+            funct3 = bitSeqToNumber(instruction, 12, 14)
+            offset = signedBitSeqToNumber(instruction, 20, 31)
 
-def sgnext2(offset):
-    if offset & (1 << 11):
-        offset -= (1 << 12)
-    return offset
+            if funct3 == 2:
+                lw(rd, rs1, offset)
+            else:
+                print("Instructiune neimplementata")
+                break
 
+            pc += 4
 
-def getInstruction(pc):
-    return (memory[pc] << 24) + (memory[pc + 1] << 16) + (memory[pc + 2] << 8) + memory[pc + 3]
+        elif opcode == 19:   # ADDI(+ LI, MV, NOP), SLLI, ORI
+            rd = bitSeqToNumber(instruction, 7, 11)
+            rs1 = bitSeqToNumber(instruction, 15, 19)
+            funct3 = bitSeqToNumber(instruction, 12, 14)
+            immediate = signedBitSeqToNumber(instruction, 20, 31)
 
+            if funct3 == 0:
+                addi(rd, rs1, immediate)
+            elif funct3 == 1:
+                slli(rd, rs1, immediate)
+            elif funct3 == 6:
+                ori(rd, rs1, immediate)
+            else:
+                print("Instructiune neimplementata")
+                break
 
-loadTestSrs('rv32um-v-rem.mc')
-while True:
-    register[0] = 0
+            pc += 4
 
-    if pc == 10720:
-        pc += 0
+        elif opcode == 23:   # AUIPC
+            rd = bitSeqToNumber(instruction, 7, 11)
+            immediate = bitSeqToNumber(instruction, 12, 31)
 
-    # IF - instruction fetch
-    instruction = getInstruction(pc)
+            auipc(rd, immediate)
 
-    # ID - instruction decode
-    opcode = bitsToNumber(instruction, 0, 6)
+            pc += 4
 
-    if opcode == 0:
-        pc += 4
+        elif opcode == 35:   # SW
+            rs1 = bitSeqToNumber(instruction, 15, 19)
+            rs2 = bitSeqToNumber(instruction, 20, 24)
+            offset = complTwo(bitSeqToNumber(instruction, 7, 11) + (bitSeqToNumber(instruction, 25, 31) << 5), 11)
+            funct3 = bitSeqToNumber(instruction, 12, 14)
 
-    elif opcode == 3:
-        rd = bitsToNumber(instruction, 7, 11)
-        funct3 = bitsToNumber(instruction, 12, 14)
-        rs1 = bitsToNumber(instruction, 15, 19)
-        offset = signedBitsToNumber(instruction, 20, 31)
+            if funct3 == 2:
+                sw(rs1, rs2, offset)
+            else:
+                print("Instructiune neimplementata")
+                break
 
-        if funct3 == 2:
-            lw(rd, rs1, offset)
+            pc += 4
 
-        pc += 4
+        elif opcode == 51:   # XOR, SRL, REM
+            rd = bitSeqToNumber(instruction, 7, 11)
+            rs1 = bitSeqToNumber(instruction, 15, 19)
+            rs2 = bitSeqToNumber(instruction, 20, 24)
+            funct3 = bitSeqToNumber(instruction, 12, 14)
 
-    elif opcode == 19:
-        rd = bitsToNumber(instruction, 7, 11)
-        funct3 = bitsToNumber(instruction, 12, 14)
-        rs1 = bitsToNumber(instruction, 15, 19)
-        immediate = signedBitsToNumber(instruction, 20, 31)
+            if funct3 == 4:
+                xor(rd, rs1, rs2)
+            elif funct3 == 5:
+                srl(rd, rs1, rs2)
+            elif funct3 == 6:
+                rem(rd, rs1, rs2)
+            else:
+                print("Instructiune neimplementata")
+                break
 
-        if funct3 == 0:
-            addi(rd, rs1, immediate)
-        elif funct3 == 6:
-            ori(rd, rs1, immediate)
-        elif funct3 == 1:
-            slli(rd, rs1, immediate)
+            pc += 4
 
-        pc += 4
+        elif opcode == 55:   # LUI
+            rd = bitSeqToNumber(instruction, 7, 11)
+            immediate = bitSeqToNumber(instruction, 12, 31)
 
-    elif opcode == 23:
-        rd = bitsToNumber(instruction, 7, 11)
-        immediate = bitsToNumber(instruction, 12, 31)
+            lui(rd, immediate)
 
-        auipc(rd, immediate)
+            pc += 4
 
-        pc += 4
+        elif opcode == 99:   # BNE, BEQ(+ BEQZ)
+            rs1 = bitSeqToNumber(instruction, 15, 19)
+            rs2 = bitSeqToNumber(instruction, 20, 24)
+            funct3 = bitSeqToNumber(instruction, 12, 14)
 
-    elif opcode == 35:
-        offset = bitsToNumber(instruction, 7, 11) + (bitsToNumber(instruction, 25, 31) << 5)
-        funct3 = bitsToNumber(instruction, 12, 14)
-        rs1 = bitsToNumber(instruction, 15, 19)
-        rs2 = bitsToNumber(instruction, 20, 24)
+            offset = (bitSeqToNumber(instruction, 7, 7) << 11) + \
+                     (bitSeqToNumber(instruction, 8, 11) << 1) + \
+                     (bitSeqToNumber(instruction, 25, 30) << 5) + \
+                     (bitSeqToNumber(instruction, 31, 31) << 12)
+            offset = complTwo(offset, 12)
 
-        offset = sgnext2(offset)
+            if funct3 == 1:
+                bne(rs1, rs2, offset)
+            elif funct3 == 0:
+                beq(rs1, rs2, offset)
+            else:
+                print("Instructiune neimplementata")
+                break
 
-        if funct3 == 2:
-            sw(rs1, rs2, offset)
+        elif opcode == 111:   # JAL(+ J)
+            rd = bitSeqToNumber(instruction, 7, 11)
+            offset = (bitSeqToNumber(instruction, 31, 31) << 20) + \
+                     (bitSeqToNumber(instruction, 21, 30) << 1) + \
+                     (bitSeqToNumber(instruction, 20, 20) << 11) + \
+                     (bitSeqToNumber(instruction, 12, 19) << 12)
 
-        pc += 4
+            jal(rd)
 
-    elif opcode == 55:
-        rd = bitsToNumber(instruction, 7, 11)
-        immediate = bitsToNumber(instruction, 12, 31)
+            pc += offset
 
-        lui(rd, immediate)
+        elif opcode == 115:   # ECALL(exit call)
+            if pc >= passAddress:
+                print('PASS')
+            else:
+                print('FAIL')
+            break
 
-        pc += 4
+        elif opcode == 0:
+            pc += 4
 
-    elif opcode == 51:
-        rs2 = bitsToNumber(instruction, 20, 24)
-        rs1 = bitsToNumber(instruction, 15, 19)
-        rd = bitsToNumber(instruction, 7, 11)
-        funct3 = bitsToNumber(instruction, 12, 14)
-
-        if funct3 == 5:
-            srl(rs2, rs1, rd)
-        elif funct3 == 4:
-            xor(rs2, rs1, rd)
-        elif funct3 == 6:
-            rem(rs2, rs1, rd)
-
-        pc += 4
-
-    elif opcode == 111:
-        rd = bitsToNumber(instruction, 7, 11)
-        offset = (bitsToNumber(instruction, 31, 31) << 20) + \
-                 (bitsToNumber(instruction, 21, 30) << 1) + \
-                 (bitsToNumber(instruction, 20, 20) << 11) + \
-                 (bitsToNumber(instruction, 12, 19) << 12)
-
-        jal(rd)
-
-        pc += offset
-
-    elif opcode == 99:
-        rs1 = bitsToNumber(instruction, 15, 19)
-        rs2 = bitsToNumber(instruction, 20, 24)
-        funct3 = bitsToNumber(instruction, 12, 14)
-        offset = (bitsToNumber(instruction, 7, 7) << 11) + \
-                 (bitsToNumber(instruction, 8, 11) << 1) + \
-                 (bitsToNumber(instruction, 25, 30) << 5) + \
-                 (bitsToNumber(instruction, 31, 31) << 12)
-
-        offset = sgnext(offset)
-
-        if funct3 == 1:
-            bne(rs1, rs2, offset)
-        elif funct3 == 0:
-            beq(rs1, rs2, offset)
-
-    elif opcode == 115:
-        if pc >= passedAdress:
-            print('pass')
         else:
-            print('fail', pc)
-        break
+            print("Opcode invalid")
+            break
 
 
+teste = ["rv32ui-v-addi.mc", "rv32ui-v-beq.mc", "rv32ui-v-srl.mc", "rv32ui-v-xor.mc", "rv32um-v-rem.mc",
+         "rv32ui-v-lw.mc", "rv32ui-v-sw.mc"]
 
-
+for test in teste:
+    runTest(test)
