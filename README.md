@@ -11,10 +11,6 @@ Usage
 python main.py
 ```
 
-# [![forthebadge](https://forthebadge.com/images/badges/it-works-why.svg)](https://forthebadge.com)
-
-It works because we made it work. That's the whole point.
-
 # Error handling
 If an instruction is not found in the given tests, it will not work since it is not implemented.
 
