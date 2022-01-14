@@ -1,4 +1,6 @@
+from constante import *
 import math
+from time import sleep
 
 const = 0x80000000                          # scadem aceasta constanta din adresele de memorie pentru a porni de la adresa 0
 
@@ -224,6 +226,7 @@ def loadTest(file):
 
 
 def runTest(fisier):
+    sleep(1)
     print(fisier, end=" ")
 
     loadTest(fisier)
@@ -231,6 +234,8 @@ def runTest(fisier):
     global pc
     pc = 0
     while True:
+        # print(f'Memory Address {int(str(pc), 16)}')
+
         # registrul 0 este hard-wired zero; il resetam la fiecare instructiune
         register[0] = 0
 
@@ -240,13 +245,13 @@ def runTest(fisier):
         # INSTRUCTION DECODE
         opcode = bitSeqToNumber(instruction, 0, 6)
 
-        if opcode == 3:   # LW
+        if opcode == OP_LOAD:   # LW
             rd = bitSeqToNumber(instruction, 7, 11)
             rs1 = bitSeqToNumber(instruction, 15, 19)
             funct3 = bitSeqToNumber(instruction, 12, 14)
             offset = signedBitSeqToNumber(instruction, 20, 31)
 
-            if funct3 == 2:
+            if funct3 == FUNCT3_LW:
                 lw(rd, rs1, offset)
             else:
                 print("Instructiune neimplementata")
@@ -254,17 +259,17 @@ def runTest(fisier):
 
             pc += 4
 
-        elif opcode == 19:   # ADDI(+ LI, MV, NOP), SLLI, ORI
+        elif opcode == OP_IMM:   # ADDI(+ LI, MV, NOP), SLLI, ORI
             rd = bitSeqToNumber(instruction, 7, 11)
             rs1 = bitSeqToNumber(instruction, 15, 19)
             funct3 = bitSeqToNumber(instruction, 12, 14)
             immediate = signedBitSeqToNumber(instruction, 20, 31)
 
-            if funct3 == 0:
+            if funct3 == FUNCT3_ADDI:
                 addi(rd, rs1, immediate)
-            elif funct3 == 1:
+            elif funct3 == FUNCT3_SLLI:
                 slli(rd, rs1, immediate)
-            elif funct3 == 6:
+            elif funct3 == FUNCT3_ORI:
                 ori(rd, rs1, immediate)
             else:
                 print("Instructiune neimplementata")
@@ -272,7 +277,7 @@ def runTest(fisier):
 
             pc += 4
 
-        elif opcode == 23:   # AUIPC
+        elif opcode == OP_AUIPC:   # AUIPC
             rd = bitSeqToNumber(instruction, 7, 11)
             immediate = bitSeqToNumber(instruction, 12, 31)
 
@@ -280,13 +285,13 @@ def runTest(fisier):
 
             pc += 4
 
-        elif opcode == 35:   # SW
+        elif opcode == OP_STORE:   # SW
             rs1 = bitSeqToNumber(instruction, 15, 19)
             rs2 = bitSeqToNumber(instruction, 20, 24)
             offset = complTwo(bitSeqToNumber(instruction, 7, 11) + (bitSeqToNumber(instruction, 25, 31) << 5), 11)
             funct3 = bitSeqToNumber(instruction, 12, 14)
 
-            if funct3 == 2:
+            if funct3 == FUNCT3_SW:
                 sw(rs1, rs2, offset)
             else:
                 print("Instructiune neimplementata")
@@ -294,17 +299,17 @@ def runTest(fisier):
 
             pc += 4
 
-        elif opcode == 51:   # XOR, SRL, REM
+        elif opcode == OP_OP:   # XOR, SRL, REM
             rd = bitSeqToNumber(instruction, 7, 11)
             rs1 = bitSeqToNumber(instruction, 15, 19)
             rs2 = bitSeqToNumber(instruction, 20, 24)
             funct3 = bitSeqToNumber(instruction, 12, 14)
 
-            if funct3 == 4:
+            if funct3 == FUNCT3_XOR:
                 xor(rd, rs1, rs2)
-            elif funct3 == 5:
+            elif funct3 == FUNCT3_SRL:
                 srl(rd, rs1, rs2)
-            elif funct3 == 6:
+            elif funct3 == FUNCT3_REM:
                 rem(rd, rs1, rs2)
             else:
                 print("Instructiune neimplementata")
@@ -312,7 +317,7 @@ def runTest(fisier):
 
             pc += 4
 
-        elif opcode == 55:   # LUI
+        elif opcode == OP_LUI:   # LUI
             rd = bitSeqToNumber(instruction, 7, 11)
             immediate = bitSeqToNumber(instruction, 12, 31)
 
@@ -320,7 +325,7 @@ def runTest(fisier):
 
             pc += 4
 
-        elif opcode == 99:   # BNE, BEQ(+ BEQZ)
+        elif opcode == OP_BRANCH:   # BNE, BEQ(+ BEQZ)
             rs1 = bitSeqToNumber(instruction, 15, 19)
             rs2 = bitSeqToNumber(instruction, 20, 24)
             funct3 = bitSeqToNumber(instruction, 12, 14)
@@ -331,15 +336,15 @@ def runTest(fisier):
                      (bitSeqToNumber(instruction, 31, 31) << 12)
             offset = complTwo(offset, 12)
 
-            if funct3 == 1:
-                bne(rs1, rs2, offset)
-            elif funct3 == 0:
+            if funct3 == FUNCT3_BEQ:
                 beq(rs1, rs2, offset)
+            elif funct3 == FUNCT3_BNE:
+                bne(rs1, rs2, offset)
             else:
                 print("Instructiune neimplementata")
                 break
 
-        elif opcode == 111:   # JAL(+ J)
+        elif opcode == OP_JAL:   # JAL(+ J)
             rd = bitSeqToNumber(instruction, 7, 11)
             offset = (bitSeqToNumber(instruction, 31, 31) << 20) + \
                      (bitSeqToNumber(instruction, 21, 30) << 1) + \
@@ -350,14 +355,14 @@ def runTest(fisier):
 
             pc += offset
 
-        elif opcode == 115:   # ECALL(exit call)
+        elif opcode == OP_EXIT:   # ECALL(exit call)
             if pc >= passAddress:
                 print('PASS')
             else:
                 print('FAIL')
             break
 
-        elif opcode == 0:
+        elif opcode == OP_EMPTY:
             pc += 4
 
         else:
